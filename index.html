@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gestionnaire de Notes Avancé</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter&display=swap');
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #121212;
+    color: #eee;
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+  }
+  .app {
+    width: 100%;
+    max-width: 900px;
+    background: #1e1e1e;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 0 20px #0f62fe88;
+  }
+  h1 {
+    margin: 0 0 20px;
+    font-weight: 700;
+    color: #0f62fe;
+    text-align: center;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+  }
+  input[type="text"], textarea, select {
+    flex-grow: 1;
+    background: #121212;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 10px;
+    color: #eee;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.3s ease;
+  }
+  input[type="text"]:focus, textarea:focus, select:focus {
+    border-color: #0f62fe;
+  }
+  textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+  }
+  button {
+    background: #0f62fe;
+    border: none;
+    color: white;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+    user-select: none;
+  }
+  button:hover:not(:disabled) {
+    background: #0053ba;
+  }
+  button:disabled {
+    background: #444;
+    cursor: not-allowed;
+  }
+  .notes-list {
+    margin-top: 20px;
+    display: grid;
+    gap: 15px;
+    grid-template-columns: repeat(auto-fill,minmax(250px,1fr));
+  }
+  .note {
+    background: #2a2a2a;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px #0f62fe44;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    word-break: break-word;
+    position: relative;
+  }
+  .note .title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .note .content {
+    flex-grow: 1;
+    font-size: 0.95rem;
+    margin-bottom: 10px;
+    max-height: 120px;
+    overflow: auto;
+  }
+  .note .date {
+    font-size: 0.75rem;
+    color: #999;
+    margin-bottom: 10px;
+    font-style: italic;
+  }
+  .note .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+  .note button {
+    background: transparent;
+    border: none;
+    color: #0f62fe;
+    padding: 4px;
+    cursor: pointer;
+    transition: color 0.2s ease;
+  }
+  .note button:hover {
+    color: #0053ba;
+  }
+  .note button svg {
+    width: 20px;
+    height: 20px;
+    pointer-events: none;
+  }
+  .search-input {
+    max-width: 300px;
+  }
+  @media (max-width: 600px) {
+    .controls {
+      flex-direction: column;
+    }
+    button {
+      width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>Gestionnaire de Notes</h1>
+    <div class="controls">
+      <input type="text" id="search" class="search-input" placeholder="Rechercher dans les notes..." autocomplete="off" />
+      <select id="sort-select" title="Trier les notes">
+        <option value="newest">Les plus récentes</option>
+        <option value="oldest">Les plus anciennes</option>
+        <option value="alpha">Par titre (A-Z)</option>
+        <option value="alpha-desc">Par titre (Z-A)</option>
+      </select>
+    </div>
+    <form id="note-form" autocomplete="off">
+      <input type="text" id="note-title" placeholder="Titre de la note" required />
+      <textarea id="note-content" placeholder="Contenu de la note" required></textarea>
+      <button type="submit" id="save-btn">Ajouter la note</button>
+      <button type="button" id="cancel-edit-btn" style="display:none; margin-left:10px; background:#d32f2f;">Annuler</button>
+    </form>
+    <div class="notes-list" id="notes-list"></div>
+  </div>
+
+<script>
+  class Note {
+    constructor(id, title, content, createdAt, updatedAt) {
+      this.id = id;
+      this.title = title;
+      this.content = content;
+      this.createdAt = createdAt || Date.now();
+      this.updatedAt = updatedAt || Date.now();
+    }
+  }
+
+  class NotesApp {
+    constructor() {
+      this.notes = [];
+      this.editingNoteId = null;
+
+      this.noteForm = document.getElementById('note-form');
+      this.titleInput = document.getElementById('note-title');
+      this.contentInput = document.getElementById('note-content');
+      this.saveBtn = document.getElementById('save-btn');
+      this.cancelEditBtn = document.getElementById('cancel-edit-btn');
+      this.notesList = document.getElementById('notes-list');
+      this.searchInput = document.getElementById('search');
+      this.sortSelect = document.getElementById('sort-select');
+
+      this.loadNotes();
+      this.attachEventListeners();
+      this.render();
+    }
+
+    loadNotes() {
+      const saved = localStorage.getItem('notesAppNotes');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        this.notes = parsed.map(n => new Note(n.id, n.title, n.content, n.createdAt, n.updatedAt));
+      }
+    }
+
+    saveNotes() {
+      localStorage.setItem('notesAppNotes', JSON.stringify(this.notes));
+    }
+
+    attachEventListeners() {
+      this.noteForm.addEventListener('submit', e => {
+        e.preventDefault();
+        if (this.editingNoteId) {
+          this.updateNote();
+        } else {
+          this.addNote();
+        }
+      });
+
+      this.cancelEditBtn.addEventListener('click', () => this.cancelEdit());
+
+      this.searchInput.addEventListener('input', () => this.render());
+
+      this.sortSelect.addEventListener('change', () => this.render());
+    }
+
+    addNote() {
+      const title = this.titleInput.value.trim();
+      const content = this.contentInput.value.trim();
+      if (!title || !content) return;
+
+      const id = D
